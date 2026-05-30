@@ -1,5 +1,3 @@
-
-
 // ----------- INCLUDES -----------
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
@@ -13,11 +11,75 @@
 #define SAMPLE_RATE      16000
 #define SAMPLES_PER_READ 320
 
+// define button pins
+#define C4_PIN 14
+#define D4_PIN 13
+#define E4_PIN 12
+#define F4_PIN 11
+#define G4_PIN 10
+#define A4_PIN 9
+#define B4_PIN 3
+
+#define SPEAKER_PIN 5
+
 volatile bool microphone_flag = false;
 
 void IRAM_ATTR microphoneTimerInterrupt() {
   // set flag to signal microphone to take a sample
   microphone_flag = true;
+}
+
+// initialize active_button and prev_active_button
+volatile int active_button = -1;
+int prev_active_button = -2;
+
+// button press interrupt service routine for note C4
+void IRAM_ATTR interruptC4() {
+  if (active_button == -1) {
+    active_button = C4_PIN;
+  }
+}
+
+// button press interrupt service routine for note D4
+void IRAM_ATTR interruptD4() {
+  if (active_button == -1) {
+    active_button = D4_PIN;
+  }
+}
+
+// button press interrupt service routine for note E4
+void IRAM_ATTR interruptE4() {
+  if (active_button == -1) {
+    active_button = E4_PIN;
+  }
+}
+
+// button press interrupt service routine for note F4
+void IRAM_ATTR interruptF4() {
+  if (active_button == -1) {
+    active_button = F4_PIN;
+  }
+}
+
+// button press interrupt service routine for note G4
+void IRAM_ATTR interruptG4() {
+  if (active_button == -1) {
+    active_button = G4_PIN;
+  }
+}
+
+// button press interrupt service routine for note A4
+void IRAM_ATTR interruptA4() {
+  if (active_button == -1) {
+    active_button = A4_PIN;
+  }
+}
+
+// button press interrupt service routine for note B4
+void IRAM_ATTR interruptB4() {
+  if (active_button == -1) {
+    active_button = B4_PIN;
+  }
 }
 
 hw_timer_t * timer = NULL; // Declare timer variable and initialize to null
@@ -27,14 +89,58 @@ void volumeAdjustTask(void *arg) {
 
 }
 
-// this task is triggered by an interrupt flag when the user presses a button
-// it plays a particular note depending on which button is pressed
-// make sure that only one button can be pressed at once. When a button is pressed,
-// a note is played for 200ms and pressing any other button during that time will not interrupt the sound
-// and will not be registered by the piano
 void buttonNoteTask(void *arg) {
+  while (1) {
+    if (active_button != prev_active_button) {
+      prev_active_button = active_button;
+
+      if (active_button == C4_PIN) {
+        Serial.println("test");
+        Serial.println(ledcWriteTone(SPEAKER_PIN, 262));
+      } else if (active_button == D4_PIN) {
+        ledcWriteTone(SPEAKER_PIN, 294);
+      } else if (active_button == E4_PIN) {
+        ledcWriteTone(SPEAKER_PIN, 330);
+      } else if (active_button == F4_PIN) {
+        ledcWriteTone(SPEAKER_PIN, 349);
+      } else if (active_button == G4_PIN) {
+        ledcWriteTone(SPEAKER_PIN, 392);
+      } else if (active_button == A4_PIN) {
+        ledcWriteTone(SPEAKER_PIN, 440);
+      } else if (active_button == B4_PIN) {
+        ledcWriteTone(SPEAKER_PIN, 494);
+      } else {
+        ledcWriteTone(SPEAKER_PIN, 0);
+      }
+    }
+
+    if (active_button != -1) {
+      if (digitalRead(active_button) == HIGH) {
+        ledcWriteTone(SPEAKER_PIN, 0);
+        active_button = -1;
+      }
+    }
+    vTaskDelay(1);
+  }
+}
+
+// displays notes currently being displayed and whether we are recording/playing back
+void lcdNoteTask(void *arg) {
 
 }
+
+// fill queue of set size 
+// if queue fills up, display on lcd that they cannot record anymore
+void recordTask(void *arg) {
+
+}
+
+// play entire queue back to the user until the queue is empty
+// ensure that the user cannot play notes through buttons while playing back
+void playBackTask(void *arg) {
+
+}
+
 
 int32_t microphone_samples[320]; 
 int avg_noise;
@@ -57,7 +163,7 @@ void microphoneInputTask(void *arg) {
 
       avg_noise = sum / sample_count;
 
-      Serial.println(avg);
+      Serial.println(avg_noise);
     }
   }
 }
@@ -65,6 +171,16 @@ void microphoneInputTask(void *arg) {
 void setup() {
 
   Serial.begin(115200); // initialize serial monitor
+
+  pinMode(C4_PIN, INPUT_PULLUP);
+  pinMode(D4_PIN, INPUT_PULLUP);
+  pinMode(E4_PIN, INPUT_PULLUP);
+  pinMode(F4_PIN, INPUT_PULLUP);
+  pinMode(G4_PIN, INPUT_PULLUP);
+  pinMode(B4_PIN, INPUT_PULLUP);
+  pinMode(A4_PIN, INPUT_PULLUP);
+
+  ledcAttach(SPEAKER_PIN, 1000, 12); // pin, frequency, resolution
 
   // initialize microphone
   i2s_config_t i2s_config = {
@@ -100,9 +216,19 @@ void setup() {
   // Set alarm to trigger interrupt every second, repeating (true), 
   // number of autoreloads (0=unlimited)
   timerAlarm(timer, 20000, true, 0);
+
+  attachInterrupt(digitalPinToInterrupt(C4_PIN), &interruptC4, FALLING);
+  attachInterrupt(digitalPinToInterrupt(D4_PIN), &interruptD4, FALLING);
+  attachInterrupt(digitalPinToInterrupt(E4_PIN), &interruptE4, FALLING);
+  attachInterrupt(digitalPinToInterrupt(F4_PIN), &interruptF4, FALLING);
+  attachInterrupt(digitalPinToInterrupt(G4_PIN), &interruptG4, FALLING);
+  attachInterrupt(digitalPinToInterrupt(A4_PIN), &interruptA4, FALLING);
+  attachInterrupt(digitalPinToInterrupt(B4_PIN), &interruptB4, FALLING);
   
   xTaskCreatePinnedToCore(microphoneInputTask, "Microphone Input Task", 2048, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(buttonNoteTask, "Button Note Task", 2048, NULL, 1, NULL, 0);
 
 }
 
 void loop() {}
+
