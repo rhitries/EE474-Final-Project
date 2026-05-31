@@ -17,10 +17,12 @@
 #define E4_PIN 12
 #define F4_PIN 11
 #define G4_PIN 10
-#define A4_PIN 9
-#define B4_PIN 3
+#define A4_PIN 3
+#define B4_PIN 17
 
 #define SPEAKER_PIN 5
+
+LiquidCrystal_I2C lcd(0x27, 16, 2); // initialize the LCD
 
 volatile bool microphone_flag = false;
 
@@ -126,7 +128,9 @@ void buttonNoteTask(void *arg) {
 
 // displays notes currently being displayed and whether we are recording/playing back
 void lcdNoteTask(void *arg) {
-
+  while (1) {
+    if 
+  }
 }
 
 // fill queue of set size 
@@ -181,6 +185,11 @@ void setup() {
   pinMode(A4_PIN, INPUT_PULLUP);
 
   ledcAttach(SPEAKER_PIN, 1000, 12); // pin, frequency, resolution
+
+  Wire.begin(8, 9); // initialize I2C bus with SDA on pin 8 and SCL on pin 9
+  lcd.init();
+  lcd.backlight(); // turns on backlight
+  lcd.setCursor(0, 0); // sets cursor to first block
 
   // initialize microphone
   i2s_config_t i2s_config = {
