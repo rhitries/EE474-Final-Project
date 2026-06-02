@@ -27,10 +27,19 @@
 
 #define MAX_NOTES 14
 
-QueueHandle_t noteQueue = NULL;
+// struct that stores the pin on which a note was played, the time the note 
+// started playing, and the duration for which it was played in milliseconds
+struct NoteEvent {
+  int pin;
+  unsigned long start;
+  unsigned long duration;
+};
+
 bool is_recording = false;
 bool queue_filled = false;
 bool is_playing_back = false;
+unsigned long recording_start_time = 0;
+QueueHandle_t noteQueue = NULL;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2); // initialize the LCD
 
@@ -107,8 +116,7 @@ void buttonNoteTask(void *arg) {
       prev_active_button = active_button;
 
       if (active_button == C4_PIN) {
-        Serial.println("test");
-        Serial.println(ledcWriteTone(SPEAKER_PIN, 262));
+        ledcWriteTone(SPEAKER_PIN, 262);
       } else if (active_button == D4_PIN) {
         ledcWriteTone(SPEAKER_PIN, 294);
       } else if (active_button == E4_PIN) {
@@ -141,21 +149,15 @@ void lcdNoteTask(void *arg) {
   
 }
 
+int last_recorded_button = -1;
+int last_record_button_state = HIGH;
+int last_stop_button_state = HIGH;
+unsigned long note_start_time = 0;
+
 // fill queue of set size 
 // if queue fills up, display on lcd that they cannot record anymore
 void recordTask(void *arg) {
-  int last_recorded_button = -1;
-  int last_record_button_state = HIGH;
-  int last_stop_button_state = HIGH;
-  bool setup_done = false;
-
   while (1) {
-    if (setup_done == false) {
-      pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
-      pinMode(STOP_BUTTON_PIN, INPUT_PULLUP);
-      noteQueue = xQueueCreate(MAX_NOTES, sizeof(int));
-      setup_done = true;
-    }
 
     int record_button_state = digitalRead(RECORD_BUTTON_PIN);
     int stop_button_state = digitalRead(STOP_BUTTON_PIN);
@@ -166,6 +168,7 @@ void recordTask(void *arg) {
       is_recording = true;
       queue_filled = false;
       last_recorded_button = -1;
+      recording_start_time = millis();
       Serial.println("Recording started");
     }
 
@@ -176,45 +179,46 @@ void recordTask(void *arg) {
     }
 
     if (is_recording == true) {
+      // if new note pressed
       if (active_button != -1 && active_button != last_recorded_button) {
-        int note = active_button;
-
-        // Add the note to queue, if the queue is full, stop recording and set queue_filled to be true
-        xQueueSend(noteQueue, &note, 0);
+        // if previous note was held, save it with its duration
+        if (last_recorded_button != -1) {
+          NoteEvent event = { last_recorded_button, note_start_time, millis() - recording_start_time - note_start_time };
+          if (xQueueSend(noteQueue, &event, 0) != pdTRUE || uxQueueSpacesAvailable(noteQueue) == 0) {
+            queue_filled = true;
+            is_recording = false;
+            Serial.println("Queue filled, recording stopped");
+          }
+        }
         last_recorded_button = active_button;
-        Serial.print("Recorded note: ");
-        Serial.println(note);
+        note_start_time = millis() - recording_start_time;  // start timing the new note
+      }
 
-        if (uxQueueSpacesAvailable(noteQueue) == 0) {
+      // if note was released
+      if (active_button == -1 && last_recorded_button != -1) {
+        NoteEvent event = { last_recorded_button, note_start_time, millis() - recording_start_time - note_start_time };
+        if (xQueueSend(noteQueue, &event, 0) != pdTRUE || uxQueueSpacesAvailable(noteQueue) == 0) {
           queue_filled = true;
           is_recording = false;
           Serial.println("Queue filled, recording stopped");
         }
-      }
-
-      if (active_button == -1) {
         last_recorded_button = -1;
       }
     }
 
-    // Update the last button state 
+    // update the last button state 
     last_record_button_state = record_button_state;
     last_stop_button_state = stop_button_state;
     vTaskDelay(10);
   }
 }
 
+int last_play_button_state = HIGH;
+
 // play entire queue back to the user until the queue is empty
 // ensure that the user cannot play notes through buttons while playing back
 void playBackTask(void *arg) {
-  bool setup_done = false;
-  int last_play_button_state = HIGH;
-
   while (1) {
-    if (setup_done == false) {
-      pinMode(PLAY_BUTTON_PIN, INPUT_PULLUP);
-      setup_done = true;
-    }
 
     int play_button_state = digitalRead(PLAY_BUTTON_PIN);
 
@@ -238,35 +242,39 @@ void playBackTask(void *arg) {
 
         Serial.println("Playback started");
 
-        int note;
+        NoteEvent note;
+        unsigned long playback_start = millis();
 
         // Loop through the queue and play each note with a delay in between. After playing each note, remove it from the queue
         // until the queue is empty, which is when we stop playback mode and reattach interrupts for note buttons.
         while (xQueueReceive(noteQueue, &note, 0) == pdTRUE) {
-          if (note == C4_PIN) {
+          // wait until time to play the note
+          long wait = (long)((playback_start + note.start) - millis());
+          if (wait > 0) {
+            vTaskDelay(wait / portTICK_PERIOD_MS);
+          }
+          if (note.pin == C4_PIN) {
             ledcWriteTone(SPEAKER_PIN, 262);
-          } else if (note == D4_PIN) {
+          } else if (note.pin == D4_PIN) {
             ledcWriteTone(SPEAKER_PIN, 294);
-          } else if (note == E4_PIN) {
+          } else if (note.pin == E4_PIN) {
             ledcWriteTone(SPEAKER_PIN, 330);
-          } else if (note == F4_PIN) {
+          } else if (note.pin == F4_PIN) {
             ledcWriteTone(SPEAKER_PIN, 349);
-          } else if (note == G4_PIN) {
+          } else if (note.pin == G4_PIN) {
             ledcWriteTone(SPEAKER_PIN, 392);
-          } else if (note == A4_PIN) {
+          } else if (note.pin == A4_PIN) {
             ledcWriteTone(SPEAKER_PIN, 440);
-          } else if (note == B4_PIN) {
+          } else if (note.pin == B4_PIN) {
             ledcWriteTone(SPEAKER_PIN, 494);
           }
 
           Serial.print("Playing note: ");
-          Serial.println(note);
+          Serial.println(note.pin);
 
-          vTaskDelay(400 / portTICK_PERIOD_MS);
+          vTaskDelay(note.duration / portTICK_PERIOD_MS);
 
           ledcWriteTone(SPEAKER_PIN, 0);
-
-          vTaskDelay(100 / portTICK_PERIOD_MS);
         }
 
         Serial.println("Playback finished");
@@ -312,7 +320,7 @@ void microphoneInputTask(void *arg) {
 
       avg_noise = sum / sample_count;
 
-      Serial.println(avg_noise);
+      //Serial.println(avg_noise);
     }
   }
 }
@@ -328,6 +336,11 @@ void setup() {
   pinMode(G4_PIN, INPUT_PULLUP);
   pinMode(B4_PIN, INPUT_PULLUP);
   pinMode(A4_PIN, INPUT_PULLUP);
+  pinMode(PLAY_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(STOP_BUTTON_PIN, INPUT_PULLUP);
+  
+  noteQueue = xQueueCreate(MAX_NOTES, sizeof(NoteEvent));
 
   ledcAttach(SPEAKER_PIN, 1000, 12); // pin, frequency, resolution
 
