@@ -12,20 +12,20 @@
 #define SAMPLES_PER_READ 320
 
 // define button pins
-#define C4_PIN 14
-#define D4_PIN 13
-#define E4_PIN 12
+#define C4_PIN 17
+#define D4_PIN 3
+#define E4_PIN 10
 #define F4_PIN 11
-#define G4_PIN 10
-#define A4_PIN 3
-#define B4_PIN 17
+#define G4_PIN 12
+#define A4_PIN 13
+#define B4_PIN 14
 
 #define SPEAKER_PIN 5
 #define RECORD_BUTTON_PIN 6
 #define STOP_BUTTON_PIN 4
-#define PLAY_BUTTON_PIN 2
+#define PLAY_BUTTON_PIN 7
 
-#define MAX_NOTES 14
+#define MAX_NOTES 50
 
 // struct that stores the pin on which a note was played, the time the note 
 // started playing, and the duration for which it was played in milliseconds
@@ -41,7 +41,35 @@ bool is_playing_back = false;
 unsigned long recording_start_time = 0;
 QueueHandle_t noteQueue = NULL;
 
+int32_t microphone_samples[320]; 
+int avg_noise;
+int smoothed_noise = 0;
+
 LiquidCrystal_I2C lcd(0x27, 16, 2); // initialize the LCD
+
+SemaphoreHandle_t lcdMutex = NULL; // semaphore for shared LCD resource
+
+// helper function to display things on the LCD
+void lcdPrint(int col, int row, const char* text) {
+  if (xSemaphoreTake(lcdMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    lcd.setCursor(col, row);
+    lcd.print(text);
+    xSemaphoreGive(lcdMutex);
+  }
+}
+
+// helper function to set the volume based on the ambient noise
+void setNoteVolume(int pin, uint32_t frequency) {
+  ledcWriteTone(pin, frequency);
+  if (frequency > 0) {
+    // scale smoothed_noise to duty cycle
+    int duty = map(smoothed_noise, 100, 600, 5, 300);
+    duty = constrain(duty, 5, 300);  // clamps to valid range
+    Serial.print("duty: ");
+    Serial.println(duty);
+    ledcWrite(pin, duty);
+  }
+}
 
 volatile bool microphone_flag = false;
 
@@ -105,32 +133,27 @@ void IRAM_ATTR interruptB4() {
 
 hw_timer_t * timer = NULL; // Declare timer variable and initialize to null
 
-// adjusts the volume of the notes being played based on avg_noise
-void volumeAdjustTask(void *arg) {
-
-}
-
 void buttonNoteTask(void *arg) {
   while (1) {
     if (active_button != prev_active_button) {
       prev_active_button = active_button;
 
       if (active_button == C4_PIN) {
-        ledcWriteTone(SPEAKER_PIN, 262);
+        setNoteVolume(SPEAKER_PIN, 262);
       } else if (active_button == D4_PIN) {
-        ledcWriteTone(SPEAKER_PIN, 294);
+        setNoteVolume(SPEAKER_PIN, 294);
       } else if (active_button == E4_PIN) {
-        ledcWriteTone(SPEAKER_PIN, 330);
+        setNoteVolume(SPEAKER_PIN, 330);
       } else if (active_button == F4_PIN) {
-        ledcWriteTone(SPEAKER_PIN, 349);
+        setNoteVolume(SPEAKER_PIN, 349);
       } else if (active_button == G4_PIN) {
-        ledcWriteTone(SPEAKER_PIN, 392);
+        setNoteVolume(SPEAKER_PIN, 392);
       } else if (active_button == A4_PIN) {
-        ledcWriteTone(SPEAKER_PIN, 440);
+        setNoteVolume(SPEAKER_PIN, 440);
       } else if (active_button == B4_PIN) {
-        ledcWriteTone(SPEAKER_PIN, 494);
+        setNoteVolume(SPEAKER_PIN, 494);
       } else {
-        ledcWriteTone(SPEAKER_PIN, 0);
+        setNoteVolume(SPEAKER_PIN, 0);
       }
     }
 
@@ -146,7 +169,30 @@ void buttonNoteTask(void *arg) {
 
 // displays notes currently being displayed and whether we are recording/playing back
 void lcdNoteTask(void *arg) {
-  
+  int lcd_prev_button = -2;
+  while (1) {
+    if (!is_playing_back && (active_button != lcd_prev_button)) {
+      lcd_prev_button = active_button;
+      if (active_button == C4_PIN) {
+        lcdPrint(0, 1, "Playing Note C4 ");
+      } else if (active_button == D4_PIN) {
+        lcdPrint(0, 1, "Playing Note D4 ");
+      } else if (active_button == E4_PIN) {
+        lcdPrint(0, 1, "Playing Note E4 ");
+      } else if (active_button == F4_PIN) {
+        lcdPrint(0, 1, "Playing Note F4 ");
+      } else if (active_button == G4_PIN) {
+        lcdPrint(0, 1, "Playing Note G4 ");
+      } else if (active_button == A4_PIN) {
+        lcdPrint(0, 1, "Playing Note A4 ");
+      } else if (active_button == B4_PIN) {
+        lcdPrint(0, 1, "Playing Note B4 ");
+      } else {
+        lcdPrint(0, 1, "                "); // if not playing a note, clear the bottom row of the display
+      }
+    }
+    vTaskDelay(20 / portTICK_PERIOD_MS);
+  }
 }
 
 int last_recorded_button = -1;
@@ -169,6 +215,7 @@ void recordTask(void *arg) {
       queue_filled = false;
       last_recorded_button = -1;
       recording_start_time = millis();
+      lcdPrint(0, 0, "Recording       ");
       Serial.println("Recording started");
     }
 
@@ -176,6 +223,10 @@ void recordTask(void *arg) {
     if (last_stop_button_state == LOW && stop_button_state == HIGH) {
       is_recording = false;
       Serial.println("Recording stopped");
+      lcdPrint(0, 0, "Stopped         ");
+      vTaskDelay(1000);
+      lcdPrint(0, 0, "                ");
+      lcdPrint(0, 1, "                ");
     }
 
     if (is_recording == true) {
@@ -187,7 +238,11 @@ void recordTask(void *arg) {
           if (xQueueSend(noteQueue, &event, 0) != pdTRUE || uxQueueSpacesAvailable(noteQueue) == 0) {
             queue_filled = true;
             is_recording = false;
+            lcdPrint(0, 0, "Stopped         ");
             Serial.println("Queue filled, recording stopped");
+            vTaskDelay(1000);
+            lcdPrint(0, 0, "                ");
+            lcdPrint(0, 1, "                ");
           }
         }
         last_recorded_button = active_button;
@@ -200,7 +255,11 @@ void recordTask(void *arg) {
         if (xQueueSend(noteQueue, &event, 0) != pdTRUE || uxQueueSpacesAvailable(noteQueue) == 0) {
           queue_filled = true;
           is_recording = false;
+          lcdPrint(0, 0, "Queue full      ");
           Serial.println("Queue filled, recording stopped");
+          vTaskDelay(1000);
+          lcdPrint(0, 0, "                ");
+          lcdPrint(0, 1, "                ");
         }
         last_recorded_button = -1;
       }
@@ -241,6 +300,7 @@ void playBackTask(void *arg) {
         ledcWriteTone(SPEAKER_PIN, 0);
 
         Serial.println("Playback started");
+        lcdPrint(0, 0, "Playback        ");
 
         NoteEvent note;
         unsigned long playback_start = millis();
@@ -254,19 +314,26 @@ void playBackTask(void *arg) {
             vTaskDelay(wait / portTICK_PERIOD_MS);
           }
           if (note.pin == C4_PIN) {
-            ledcWriteTone(SPEAKER_PIN, 262);
+            setNoteVolume(SPEAKER_PIN, 262);
+            lcdPrint(0, 1, "Playing note C4 ");
           } else if (note.pin == D4_PIN) {
-            ledcWriteTone(SPEAKER_PIN, 294);
+            setNoteVolume(SPEAKER_PIN, 294);
+            lcdPrint(0, 1, "Playing note D4 ");
           } else if (note.pin == E4_PIN) {
-            ledcWriteTone(SPEAKER_PIN, 330);
+            setNoteVolume(SPEAKER_PIN, 330);
+            lcdPrint(0, 1, "Playing note E4 ");
           } else if (note.pin == F4_PIN) {
-            ledcWriteTone(SPEAKER_PIN, 349);
+            setNoteVolume(SPEAKER_PIN, 349);
+            lcdPrint(0, 1, "Playing note F4 ");
           } else if (note.pin == G4_PIN) {
-            ledcWriteTone(SPEAKER_PIN, 392);
+            setNoteVolume(SPEAKER_PIN, 392);
+            lcdPrint(0, 1, "Playing note G4 ");
           } else if (note.pin == A4_PIN) {
-            ledcWriteTone(SPEAKER_PIN, 440);
+            setNoteVolume(SPEAKER_PIN, 440);
+            lcdPrint(0, 1, "Playing note A4 ");
           } else if (note.pin == B4_PIN) {
-            ledcWriteTone(SPEAKER_PIN, 494);
+            setNoteVolume(SPEAKER_PIN, 494);
+            lcdPrint(0, 1, "Playing note B4 ");
           }
 
           Serial.print("Playing note: ");
@@ -278,6 +345,10 @@ void playBackTask(void *arg) {
         }
 
         Serial.println("Playback finished");
+        lcdPrint(0, 0, "Playback done   ");
+        vTaskDelay(1000);
+        lcdPrint(0, 0, "                ");
+        lcdPrint(0, 1, "                ");
 
         queue_filled = false;
         is_playing_back = false;
@@ -298,10 +369,6 @@ void playBackTask(void *arg) {
   }
 }
 
-
-int32_t microphone_samples[320]; 
-int avg_noise;
-
 void microphoneInputTask(void *arg) {
   while (1) {
     if (microphone_flag) {
@@ -320,7 +387,10 @@ void microphoneInputTask(void *arg) {
 
       avg_noise = sum / sample_count;
 
-      //Serial.println(avg_noise);
+      smoothed_noise = (int)(0.1 * avg_noise + 0.9 * smoothed_noise);
+
+      Serial.println(smoothed_noise);
+      vTaskDelay(1);
     }
   }
 }
@@ -339,6 +409,8 @@ void setup() {
   pinMode(PLAY_BUTTON_PIN, INPUT_PULLUP);
   pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
   pinMode(STOP_BUTTON_PIN, INPUT_PULLUP);
+
+  lcdMutex = xSemaphoreCreateMutex();
   
   noteQueue = xQueueCreate(MAX_NOTES, sizeof(NoteEvent));
 
@@ -348,6 +420,9 @@ void setup() {
   lcd.init();
   lcd.backlight(); // turns on backlight
   lcd.setCursor(0, 0); // sets cursor to first block
+  lcd.print("Play a song!");
+  delay(2000);
+  lcd.clear();
 
   // initialize microphone
   i2s_config_t i2s_config = {
@@ -394,9 +469,9 @@ void setup() {
   
   xTaskCreatePinnedToCore(microphoneInputTask, "Microphone Input Task", 2048, NULL, 1, NULL, 1);
   xTaskCreatePinnedToCore(buttonNoteTask, "Button Note Task", 2048, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(recordTask, "Record Task", 2048, NULL, 1, NULL, 0);
-  xTaskCreatePinnedToCore(playBackTask, "Playback Task", 2048, NULL, 1, NULL, 0);
-
+  xTaskCreatePinnedToCore(recordTask, "Record Task", 2048, NULL, 2, NULL, 0);
+  xTaskCreatePinnedToCore(playBackTask, "Playback Task", 2048, NULL, 2, NULL, 0);
+  xTaskCreatePinnedToCore(lcdNoteTask, "LCD Display Task", 2048, NULL, 2, NULL, 1);
 }
 
 void loop() {}
