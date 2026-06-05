@@ -1,9 +1,22 @@
+
+/* final_project.ino
+ *   @file   final_project.ino
+ *   @author    Rhiannon Garnier, Bernardo Lin
+ *   @date      5-June-2026
+ *   @brief   This file is for the EE474 final project. 
+ *   It uses FreeRTOS to implement a piano that allows the user to play and record music.
+ *   Additionally, music can be played back to the user and the volume of the music is adjusted
+ *   based on the ambient room noise. 
+ *   Claude-405
+ */
+
 // ----------- INCLUDES -----------
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
 #include "driver/i2s.h"
 
+// ----------- MACROS -----------
 // define I2S pins for microphone
 #define I2S_SCK 21
 #define I2S_WS 1
@@ -11,7 +24,7 @@
 #define SAMPLE_RATE      16000
 #define SAMPLES_PER_READ 320
 
-// define button pins
+// define button note pins
 #define C4_PIN 17
 #define D4_PIN 3
 #define E4_PIN 10
@@ -20,15 +33,22 @@
 #define A4_PIN 13
 #define B4_PIN 14
 
-#define SPEAKER_PIN 5
+#define SPEAKER_PIN 5 
 #define RECORD_BUTTON_PIN 6
 #define STOP_BUTTON_PIN 4
 #define PLAY_BUTTON_PIN 7
 
-#define MAX_NOTES 50
+#define MAX_NOTES 50 // maximum number of notes that can be recorded
 
-// struct that stores the pin on which a note was played, the time the note 
-// started playing, and the duration for which it was played in milliseconds
+/**
+ * @brief Struct that stores a single recorded note event with its timing information.
+ *
+ * @details Used to populate the noteQueue during recording and used to playback the recorded notes. 
+ *
+ * @param pin       The pin number corresponding to the note button pressed.
+ * @param start     The time the note started playing, in milliseconds. 
+ * @param duration  The duration for which the note was played, in milliseconds. 
+ */
 struct NoteEvent {
   int pin;
   unsigned long start;
@@ -49,7 +69,13 @@ LiquidCrystal_I2C lcd(0x27, 16, 2); // initialize the LCD
 
 SemaphoreHandle_t lcdMutex = NULL; // semaphore for shared LCD resource
 
-// helper function to display things on the LCD
+/**
+ * @brief This is a helper function to display things on the LCD.
+ *
+ * @param col   Column of the LCD to begin the message.
+ * @param row   Row of the LCD to begin the message.
+ * @param text  The text/message to be displayed on the LCD.
+ */
 void lcdPrint(int col, int row, const char* text) {
   if (xSemaphoreTake(lcdMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
     lcd.setCursor(col, row);
@@ -58,7 +84,13 @@ void lcdPrint(int col, int row, const char* text) {
   }
 }
 
-// helper function to set the volume based on the ambient noise
+/**
+ * @brief This is a helper function to play notes and set the volume based
+ * on the ambient noise.
+ *
+ * @param pin   The pin corresponding to the speaker which the note should be played on.
+ * @param frequency   The frequency to play on the speaker. 
+ */
 void setNoteVolume(int pin, uint32_t frequency) {
   ledcWriteTone(pin, frequency);
   if (frequency > 0) {
@@ -73,6 +105,11 @@ void setNoteVolume(int pin, uint32_t frequency) {
 
 volatile bool microphone_flag = false;
 
+/**
+ * @brief Timer ISR that signals the microphone task to take a new audio sample.
+ *
+ * @details Fires every 20ms. Toggles microphone_flag. 
+ */
 void IRAM_ATTR microphoneTimerInterrupt() {
   // set flag to signal microphone to take a sample
   microphone_flag = true;
@@ -82,49 +119,84 @@ void IRAM_ATTR microphoneTimerInterrupt() {
 volatile int active_button = -1;
 int prev_active_button = -2;
 
-// button press interrupt service routine for note C4
+/**
+ * @brief Button press ISR triggered on falling edge of C4_PIN.
+ *
+ * @details Sets active_button to C4_PIN if no other note is currently active,
+ * ensuring only one note plays at a time.
+ */
 void IRAM_ATTR interruptC4() {
   if (active_button == -1) {
     active_button = C4_PIN;
   }
 }
 
-// button press interrupt service routine for note D4
+/**
+ * @brief Button press ISR triggered on falling edge of D4_PIN.
+ *
+ * @details Sets active_button to D4_PIN if no other note is currently active,
+ * ensuring only one note plays at a time.
+ */
 void IRAM_ATTR interruptD4() {
   if (active_button == -1) {
     active_button = D4_PIN;
   }
 }
 
-// button press interrupt service routine for note E4
+/**
+ * @brief Button press ISR triggered on falling edge of E4_PIN.
+ *
+ * @details Sets active_button to E4_PIN if no other note is currently active,
+ * ensuring only one note plays at a time.
+ */
 void IRAM_ATTR interruptE4() {
   if (active_button == -1) {
     active_button = E4_PIN;
   }
 }
 
-// button press interrupt service routine for note F4
+/**
+ * @brief Button press ISR triggered on falling edge of F4_PIN.
+ *
+ * @details Sets active_button to F4_PIN if no other note is currently active,
+ * ensuring only one note plays at a time.
+ */
 void IRAM_ATTR interruptF4() {
   if (active_button == -1) {
     active_button = F4_PIN;
   }
 }
 
-// button press interrupt service routine for note G4
+/**
+ * @brief Button press ISR triggered on falling edge of G4_PIN.
+ *
+ * @details Sets active_button to G4_PIN if no other note is currently active,
+ * ensuring only one note plays at a time.
+ */
 void IRAM_ATTR interruptG4() {
   if (active_button == -1) {
     active_button = G4_PIN;
   }
 }
 
-// button press interrupt service routine for note A4
+/**
+ * @brief Button press ISR triggered on falling edge of A4_PIN.
+ *
+ * @details Sets active_button to A4_PIN if no other note is currently active,
+ * ensuring only one note plays at a time.
+ */
 void IRAM_ATTR interruptA4() {
   if (active_button == -1) {
     active_button = A4_PIN;
   }
 }
 
-// button press interrupt service routine for note B4
+/**
+ * @brief Button press ISR triggered on falling edge of B4_PIN.
+ *
+ * @details Sets active_button to B4_PIN if no other note is currently active,
+ * ensuring only one note plays at a time.
+ */
 void IRAM_ATTR interruptB4() {
   if (active_button == -1) {
     active_button = B4_PIN;
@@ -133,6 +205,12 @@ void IRAM_ATTR interruptB4() {
 
 hw_timer_t * timer = NULL; // Declare timer variable and initialize to null
 
+/**
+ * @brief FreeRTOS task that plays notes on the speaker in response to button presses.
+ *
+ * @details When a button is pressed, calls setNoteVolume() with the frequency 
+ * corresponding to the new note pressed. Stops the note when the button is released. 
+ */
 void buttonNoteTask(void *arg) {
   while (1) {
     if (active_button != prev_active_button) {
@@ -167,7 +245,12 @@ void buttonNoteTask(void *arg) {
   }
 }
 
-// displays notes currently being displayed and whether we are recording/playing back
+/**
+ * @brief FreeRTOS task that updates the LCD with the currently playing note.
+ *
+ * @details Monitors active_button and updates the bottom row of the LCD
+ * whenever it changes. Displays "Playing Note X". 
+ */
 void lcdNoteTask(void *arg) {
   int lcd_prev_button = -2;
   while (1) {
@@ -200,8 +283,15 @@ int last_record_button_state = HIGH;
 int last_stop_button_state = HIGH;
 unsigned long note_start_time = 0;
 
-// fill queue of set size 
-// if queue fills up, display on lcd that they cannot record anymore
+/**
+ * @brief FreeRTOS task that manages records the notes played by the user. 
+ *
+ * @details When RECORD_BUTTON_PIN is pressed and the system is not in playback mode, 
+ * recording is started. Each NoteEvent is stored NoteEvent is stored in the noteQueue 
+ * with its timestamp relative to recording_start_time.
+ * Recording ends when the STOP_BUTTON_PIN is pressed or when the noteQueue
+ * reaches MAX_NOTES capacity. 
+ */
 void recordTask(void *arg) {
   while (1) {
 
@@ -274,8 +364,14 @@ void recordTask(void *arg) {
 
 int last_play_button_state = HIGH;
 
-// play entire queue back to the user until the queue is empty
-// ensure that the user cannot play notes through buttons while playing back
+/**
+ * @brief FreeRTOS task that plays back the recorded notes from the queue.
+ *
+ * @details When PLAY_BUTTON_PIN is pressed, all note-button interrupts are detached 
+ * to prevent live input. The each note from the noteQueue is played with the same 
+ * timing that they were originally played. 
+ * The LCD displays each note name during playback. 
+ */
 void playBackTask(void *arg) {
   while (1) {
 
@@ -369,6 +465,15 @@ void playBackTask(void *arg) {
   }
 }
 
+/**
+ * @brief FreeRTOS task that reads ambient noise level from the I2S microphone.
+ *
+ * @details Waits for microphone_flag to be set by the hardware timer ISR
+ * (every 20 ms), then uses I2S to read 320 samples. Computes the average 
+ * of the samples as avg_noise, then applies an exponential moving average 
+ * to produce smoothed_noise. This value is used by setNoteVolume() to adjust 
+ * the speaker duty cycle.
+ */
 void microphoneInputTask(void *arg) {
   while (1) {
     if (microphone_flag) {
@@ -410,6 +515,7 @@ void setup() {
   pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
   pinMode(STOP_BUTTON_PIN, INPUT_PULLUP);
 
+  // creates mutex for LCD display
   lcdMutex = xSemaphoreCreateMutex();
   
   noteQueue = xQueueCreate(MAX_NOTES, sizeof(NoteEvent));

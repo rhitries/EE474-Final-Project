@@ -1,0 +1,82 @@
+# The PROJECT_NAME tag is a single word (or a sequence of words surrounded by
+# double-quotes, unless you are using Doxywizard) that should identify the
+# project for which the documentation is generated. This name is used in the
+# title of most generated pages and in a few other places.
+# The default value is: My Project.
+
+PROJECT_NAME           = "ESP32 Piano"
+
+# If the EXTRACT_ALL tag is set to YES, Doxygen will assume all entities in
+# documentation are documented, even if no documentation was available. Private
+# class members and static file members will be hidden unless the
+# EXTRACT_PRIVATE respectively EXTRACT_STATIC tags are set to YES.
+# Note: This will also disable the warnings about undocumented members that are
+# normally produced when WARNINGS is set to YES.
+# The default value is: NO.
+
+EXTRACT_ALL            = YES
+
+# If the value of the INPUT tag contains directories, you can use the
+# FILE_PATTERNS tag to specify one or more wildcard patterns (like *.cpp and
+# *.h) to filter out the source-files in the directories.
+#
+# Note that for custom extensions or not directly supported extensions you also
+# need to set EXTENSION_MAPPING for the extension otherwise the files are not
+# read by Doxygen.
+#
+# Note the list of default checked file patterns might differ from the list of
+# default file extension mappings.
+#
+# If left blank the following patterns are tested:*.c, *.cc, *.cxx, *.cxxm,
+# *.cpp, *.cppm, *.ccm, *.c++, *.c++m, *.java, *.ii, *.ixx, *.ipp, *.i++, *.inl,
+# *.idl, *.ddl, *.odl, *.h, *.hh, *.hxx, *.hpp, *.h++, *.l, *.cs, *.d, *.php,
+# *.php4, *.php5, *.phtml, *.inc, *.m, *.markdown, *.md, *.mm, *.dox (to be
+# provided as Doxygen C comment), *.py, *.pyw, *.f90, *.f95, *.f03, *.f08,
+# *.f18, *.f, *.for, *.vhd, *.vhdl, *.ucf, *.qsf and *.ice.
+
+FILE_PATTERNS          = *.c \
+                         *.cc \
+                         *.cxx \
+                         *.cxxm \
+                         *.cpp \
+                         *.cppm \
+                         *.ccm \
+                         *.c++ \
+                         *.c++m \
+                         *.h \
+                         *.hh \
+                         *.hxx \
+                         *.hpp \
+                         *.h++ \
+                         *.markdown \
+                         *.md \
+                         *.dox \
+                         *.ino
+
+# Doxygen selects the parser to use depending on the extension of the files it
+# parses. With this tag you can assign which parser to use for a given
+# extension. Doxygen has a built-in mapping, but you can override or extend it
+# using this tag. The format is ext=language, where ext is a file extension, and
+# language is one of the parsers supported by Doxygen: IDL, Java, JavaScript,
+# Csharp (C#), C, C++, Lex, D, PHP, md (Markdown), Objective-C, Python, Slice,
+# VHDL, Fortran (fixed format Fortran: FortranFixed, free formatted Fortran:
+# FortranFree, unknown formatted Fortran: Fortran. In the later case the parser
+# tries to guess whether the code is fixed or free formatted code, this is the
+# default for Fortran type files). For instance to make Doxygen treat .inc files
+# as Fortran files (default is PHP), and .f files as C (default is Fortran),
+# use: inc=Fortran f=C.
+#
+# Note: For files without extension you can use no_extension as a placeholder.
+#
+# Note that for custom extensions you also need to set FILE_PATTERNS otherwise
+# the files are not read by Doxygen. When specifying no_extension you should add
+# * to the FILE_PATTERNS.
+#
+# Note see also the list of default file extension mappings.
+
+EXTENSION_MAPPING      = ino=c++
+
+# If the GENERATE_LATEX tag is set to YES, Doxygen will generate LaTeX output.
+# The default value is: YES.
+
+GENERATE_LATEX         = NO
